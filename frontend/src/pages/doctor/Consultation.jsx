@@ -74,7 +74,7 @@ export default function DoctorConsultation() {
             <select className="input mt-2" {...register('appointmentId', { required: true })}>
                   {queue.data?.filter((item) => isActiveAppointment(item.appointment)).map((item) => (
                 <option key={item.appointment.appointmentId} value={item.appointment.appointmentId}>
-                  {patientName(item.patient)} - {item.appointment.appointmentDate} {item.appointment.appointmentTime} - {item.appointment.status}
+                  {patientName(item.patient)} — {item.appointment.appointmentDate} {item.appointment.appointmentTime} — {item.appointment.status} — ID: ...{item.appointment.appointmentId.slice(-8)}
                 </option>
               ))}
             </select>
@@ -108,11 +108,18 @@ export default function DoctorConsultation() {
               <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-500">State</p><p className="mt-1 font-bold text-clinic-700">{roomStatus}</p></div>
             </div>
             {room.doctorJoined ? (
-              <Link className="btn-primary mt-4" to={meetingPath('doctor', selectedItem.appointment)}>Open Agora Meeting</Link>
+              <Link className="btn-primary mt-4" to={meetingPath('doctor', selectedItem.appointment)}>Open Jitsi Meeting</Link>
             ) : (
               <button className="btn-primary mt-4" type="button" disabled={!consultationOpen || room.doctorJoined} onClick={joinAsDoctor}>Start Consultation</button>
             )}
             {room.doctorJoined && !room.patientJoined && <p className="mt-3 text-sm font-semibold text-clinic-700">Doctor joined. Waiting for patient to enter the waiting room.</p>}
+            {/* Show the exact Jitsi room URL so doctor can verify it matches the patient */}
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+              <span className="font-semibold text-slate-700">Meeting room: </span>
+              <span className="font-mono break-all">
+                {`https://meet.jit.si/ArogyaSetuPlus-${selectedItem.appointment.appointmentId.replace(/-/g, '')}`}
+              </span>
+            </div>
           </section>
         )}
 

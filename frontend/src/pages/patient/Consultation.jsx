@@ -84,6 +84,12 @@ export default function PatientConsultation() {
                 {!canJoin && <p className="mt-3 text-sm font-semibold text-orange-700">Join opens at {unlockAt ? formatTime(`${unlockAt.getHours()}:${unlockAt.getMinutes()}`) : '-'}.</p>}
                 {room.patientJoined && !room.doctorJoined && <p className="mt-3 text-sm font-semibold text-clinic-700">Patient joined. You can enter the meeting room and wait for the doctor.</p>}
                 {videoReady && <p className="mt-3 text-sm font-semibold text-clinic-700">Opening Jitsi meeting room...</p>}
+                {/* Show room URL so patient can verify it matches the doctor */}
+                {appointment && (
+                  <p className="mt-3 rounded-md border border-slate-200 bg-white p-2 text-xs font-mono break-all text-slate-500">
+                    {`https://meet.jit.si/ArogyaSetuPlus-${appointment.appointmentId.replace(/-/g, '')}`}
+                  </p>
+                )}
               </div>
             </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
