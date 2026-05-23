@@ -11,6 +11,8 @@ import PatientAppointments from '../pages/patient/Appointments.jsx';
 import PatientConsultation from '../pages/patient/Consultation.jsx';
 import PatientEhr from '../pages/patient/Ehr.jsx';
 import PatientNotifications from '../pages/patient/Notifications.jsx';
+import PatientFollowUp from '../pages/patient/FollowUp.jsx';
+import PatientOfflineQueue from '../pages/patient/OfflineQueue.jsx';
 import DoctorDashboard from '../pages/doctor/Dashboard.jsx';
 import DoctorAppointments from '../pages/doctor/Appointments.jsx';
 import PatientDetails from '../pages/doctor/PatientDetails.jsx';
@@ -42,6 +44,8 @@ export default function AppRoutes() {
             <Route path="consultation" element={<PatientConsultation />} />
             <Route path="ehr" element={<PatientEhr />} />
             <Route path="notifications" element={<PatientNotifications />} />
+            <Route path="follow-up" element={<PatientFollowUp />} />
+            <Route path="offline-queue" element={<PatientOfflineQueue />} />
           </Route>
         </Route>
         <Route element={<ProtectedRoute roles={['DOCTOR']} />}>

@@ -7,18 +7,23 @@ import PageHeader from '../../components/PageHeader.jsx';
 import StatCard from '../../components/StatCard.jsx';
 import { api } from '../../services/api.js';
 import { BLOOD_GROUPS } from '../../utils/doctorSlots.js';
-import { formatShortDate, latestAppointment, riskTone } from '../../utils/patientWorkspace.js';
+import { appointmentDateTime, consultationStatus, formatCountdown, formatShortDate, formatTime, latestAppointment, patientJoinWindow, readWaitingRoom, riskTone } from '../../utils/patientWorkspace.js';
 
 export default function PatientDashboard() {
   const qc = useQueryClient();
   const [bloodGroup, setBloodGroup] = useState('');
   const [saved, setSaved] = useState(false);
   const [dismissedProfilePrompt, setDismissedProfilePrompt] = useState(false);
+  const [, setClock] = useState(Date.now());
   const { register, handleSubmit, reset } = useForm();
   const profile = useQuery({ queryKey: ['patient-profile'], queryFn: async () => (await api.get('/patient/profile')).data });
   const appts = useQuery({ queryKey: ['appointments'], queryFn: async () => (await api.get('/appointments/history')).data });
   const ehr = useQuery({ queryKey: ['patient-ehr'], queryFn: async () => (await api.get('/patient/ehr')).data, retry: false });
   const nextAppointment = latestAppointment(appts.data || []);
+  const waitingRoom = readWaitingRoom(nextAppointment?.appointmentId);
+  const nextStatus = consultationStatus(nextAppointment, waitingRoom);
+  const startsAt = nextAppointment ? appointmentDateTime(nextAppointment) : null;
+  const unlockAt = nextAppointment ? patientJoinWindow(nextAppointment) : null;
   const aiLevel = nextAppointment?.status === 'SCHEDULED' ? 'MEDIUM' : 'LOW';
   const activePrescription = ehr.data?.prescriptionHistory ? 'Active' : 'None';
   const followUpDue = nextAppointment?.appointmentDate || null;
@@ -45,6 +50,11 @@ export default function PatientDashboard() {
       emergencyContact: profile.data.emergencyContact || ''
     });
   }, [profile.data, reset]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const profileIncomplete = Boolean(profile.data) && ['phone', 'gender', 'dob', 'bloodGroup', 'address', 'emergencyContact']
     .some((field) => !profile.data?.[field]);
@@ -116,6 +126,34 @@ export default function PatientDashboard() {
         <StatCard icon={Stethoscope} label="EHR Status" value={ehr.data ? 'Available' : 'Missing'} />
         <StatCard icon={RefreshCw} tone="blue" label="Offline Sync" value={navigator.onLine ? 'Synced' : 'Offline Saved'} />
       </div>
+      <section className="card mt-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase text-clinic-700">Upcoming Consultation</p>
+            <h2 className="mt-1 text-2xl font-bold text-slate-950">{nextAppointment?.doctorName || 'No doctor assigned'}</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              {nextAppointment ? `${formatShortDate(nextAppointment.appointmentDate)} at ${formatTime(nextAppointment.appointmentTime)}` : 'Book an appointment to unlock the waiting room flow.'}
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase text-slate-500">Starts in</p>
+              <p className="mt-2 text-xl font-bold text-slate-950">{startsAt ? formatCountdown(startsAt) : '-'}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase text-slate-500">Join available</p>
+              <p className="mt-2 text-xl font-bold text-slate-950">{unlockAt ? formatTime(`${unlockAt.getHours()}:${unlockAt.getMinutes()}`) : '-'}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase text-slate-500">Status</p>
+              <p className="mt-2 text-xl font-bold text-clinic-700">{nextAppointment ? nextStatus : 'NONE'}</p>
+            </div>
+          </div>
+        </div>
+        <Link className={`btn-primary mt-4 w-full sm:w-fit ${nextAppointment ? '' : 'pointer-events-none opacity-60'}`} to="/patient/consultation">
+          Join Waiting Room
+        </Link>
+      </section>
       <div className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_.8fr]">
         <section className="card">
           <h2 className="section-title">Next Step</h2>

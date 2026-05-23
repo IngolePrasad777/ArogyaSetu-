@@ -6,11 +6,12 @@ import { Link } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader.jsx';
 import { api } from '../../services/api.js';
 import { matchesSpecialization } from '../../utils/doctorSlots.js';
-import { bodyLocations, possibleRiskFor, recommendationFor, symptomChips } from '../../utils/patientWorkspace.js';
+import { aiExplanation, bodyLocations, possibleRiskFor, recommendationFor, symptomChips } from '../../utils/patientWorkspace.js';
 
 export default function Symptoms() {
   const [result, setResult] = useState(null);
   const [selectedChips, setSelectedChips] = useState([]);
+  const [submittedValues, setSubmittedValues] = useState({});
   const { register, handleSubmit, setValue, watch } = useForm({ defaultValues: { painLevel: 5, bodyLocation: '', emergency: false } });
   const painLevel = watch('painLevel');
   const doctors = useQuery({ queryKey: ['doctors'], queryFn: async () => (await api.get('/doctors')).data });
@@ -30,7 +31,10 @@ export default function Symptoms() {
         Enter symptoms even during low connectivity. AI guidance is assistive only and must be validated by a doctor.
       </PageHeader>
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-        <form className="card space-y-4" onSubmit={handleSubmit((data) => mutation.mutate(data))}>
+        <form className="card space-y-4" onSubmit={handleSubmit((data) => {
+          setSubmittedValues(data);
+          mutation.mutate(data);
+        })}>
           <h2 className="section-title">Symptom Entry</h2>
           <div className="flex flex-wrap gap-2">
             {symptomChips.map((chip) => (
@@ -77,6 +81,14 @@ export default function Symptoms() {
                 <div className="rounded-md bg-slate-50 p-3"><dt className="font-semibold text-slate-500">Emergency</dt><dd>{['HIGH', 'EMERGENCY'].includes(result.triageLevel) ? 'YES' : 'NO'}</dd></div>
                 <div className="rounded-md bg-slate-50 p-3"><dt className="font-semibold text-slate-500">Recommendation</dt><dd>{recommendationFor(result.triageLevel)}</dd></div>
               </dl>
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <p className="font-semibold text-slate-900">Why {result.triageLevel}?</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {aiExplanation(result, submittedValues).map((reason) => (
+                    <span className="pill" key={reason}>{reason}</span>
+                  ))}
+                </div>
+              </div>
               <p className="text-slate-500">Doctors below are pulled from the verified doctor directory.</p>
               <div className="space-y-2">
                 {matchedDoctors.map((doctor) => (

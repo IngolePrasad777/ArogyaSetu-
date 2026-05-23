@@ -1,6 +1,11 @@
 export const symptomChips = ['Chest Pain', 'Dizziness', 'Fever', 'Breathing Issue', 'Headache', 'Cough', 'Rash', 'Stomach Pain'];
 export const emergencyChips = ['Chest Pain', 'Breathing Issue', 'Bleeding', 'Unconscious', 'High Fever'];
 export const bodyLocations = ['Head', 'Chest', 'Abdomen', 'Back', 'Arm', 'Leg', 'Skin', 'Throat'];
+export const sampleReports = [
+  { name: 'CBC.pdf', type: 'Blood test', date: '2026-05-20' },
+  { name: 'Prescription_1.pdf', type: 'Prescription', date: '2026-05-21' },
+  { name: 'XRay.png', type: 'Imaging', date: '2026-05-22' }
+];
 
 export function riskTone(level) {
   if (['HIGH', 'EMERGENCY'].includes(level)) return 'border-rose-400 bg-rose-50 text-rose-800';
@@ -9,13 +14,93 @@ export function riskTone(level) {
 }
 
 export function latestAppointment(appointments = []) {
-  return appointments.find((item) => item.status === 'SCHEDULED') || appointments[0];
+  const scheduled = appointments
+    .filter((item) => ['SCHEDULED', 'WAITING', 'READY', 'IN_PROGRESS'].includes(item.status))
+    .sort((a, b) => appointmentDateTime(a) - appointmentDateTime(b));
+  return scheduled[0] || appointments[0];
 }
 
 export function formatShortDate(date) {
   if (!date) return '-';
   const value = new Date(date);
   return Number.isNaN(value.getTime()) ? date : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(value);
+}
+
+export function formatTime(time) {
+  if (!time) return '-';
+  const [hour = '00', minute = '00'] = String(time).split(':');
+  const value = new Date();
+  value.setHours(Number(hour), Number(minute), 0, 0);
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(value);
+}
+
+export function appointmentDateTime(appointment) {
+  if (!appointment?.appointmentDate || !appointment?.appointmentTime) return new Date(0);
+  const [hour = '00', minute = '00', second = '00'] = String(appointment.appointmentTime).split(':');
+  return new Date(`${appointment.appointmentDate}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`);
+}
+
+export function formatCountdown(targetDate) {
+  if (!targetDate || Number.isNaN(targetDate.getTime())) return '--';
+  const diff = Math.max(0, targetDate.getTime() - Date.now());
+  const hours = Math.floor(diff / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  const seconds = Math.floor((diff % 60000) / 1000);
+  return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+export function patientJoinWindow(appointment) {
+  const startsAt = appointmentDateTime(appointment);
+  return new Date(startsAt.getTime() - 10 * 60000);
+}
+
+export function doctorJoinWindow(appointment) {
+  const startsAt = appointmentDateTime(appointment);
+  return {
+    opensAt: new Date(startsAt.getTime() - 15 * 60000),
+    closesAt: new Date(startsAt.getTime() + 30 * 60000)
+  };
+}
+
+export function waitingRoomKey(appointmentId) {
+  return `arogyasetu-waiting-room:${appointmentId}`;
+}
+
+export function readWaitingRoom(appointmentId) {
+  if (!appointmentId) return { patientJoined: false, doctorJoined: false };
+  try {
+    return JSON.parse(localStorage.getItem(waitingRoomKey(appointmentId))) || { patientJoined: false, doctorJoined: false };
+  } catch {
+    return { patientJoined: false, doctorJoined: false };
+  }
+}
+
+export function writeWaitingRoom(appointmentId, patch) {
+  const next = { ...readWaitingRoom(appointmentId), ...patch, updatedAt: new Date().toISOString() };
+  localStorage.setItem(waitingRoomKey(appointmentId), JSON.stringify(next));
+  return next;
+}
+
+export function consultationStatus(appointment, room = readWaitingRoom(appointment?.appointmentId)) {
+  if (!appointment) return 'SCHEDULED';
+  if (appointment.status === 'COMPLETED') return 'COMPLETED';
+  if (appointment.status === 'IN_PROGRESS') return 'IN_PROGRESS';
+  if (room.patientJoined && room.doctorJoined) return 'READY';
+  if (room.patientJoined) return 'WAITING_ROOM';
+  if (Date.now() >= patientJoinWindow(appointment).getTime()) return 'JOIN_AVAILABLE';
+  return appointment.status || 'SCHEDULED';
+}
+
+export function aiExplanation(result, formValues = {}) {
+  if (!result) return [];
+  const symptoms = String(formValues.symptoms || '').toLowerCase();
+  const reasons = [];
+  if (symptoms.includes('chest')) reasons.push('Chest Pain');
+  if (formValues.emergency) reasons.push('Emergency Flag');
+  if (Number(formValues.painLevel) > 5) reasons.push('Pain level > 5');
+  if (String(formValues.duration || '').match(/[2-9]|day|week/i)) reasons.push('Duration > 2 days');
+  if (!reasons.length) reasons.push('Symptoms pattern', 'Risk category match');
+  return reasons;
 }
 
 export function possibleRiskFor(department) {

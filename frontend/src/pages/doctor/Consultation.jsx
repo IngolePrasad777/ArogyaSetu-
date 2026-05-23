@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, CheckCircle2, FilePlus2, Save } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader.jsx';
 import { api } from '../../services/api.js';
 import { fetchDoctorQueue } from '../../services/doctorApi.js';
 import { formatDateTime, patientName, priorityTone } from '../../utils/doctorWorkspace.js';
+import { consultationStatus, doctorJoinWindow, readWaitingRoom, writeWaitingRoom } from '../../utils/patientWorkspace.js';
 
 export default function DoctorConsultation() {
   const [params] = useSearchParams();
   const qc = useQueryClient();
+  const [roomState, setRoomState] = useState({ patientJoined: false, doctorJoined: false });
   const { register, handleSubmit, setValue, watch } = useForm({
     defaultValues: { appointmentId: params.get('appointmentId') || '', mode: 'VIDEO', outcome: 'Completed' }
   });
@@ -18,7 +20,10 @@ export default function DoctorConsultation() {
   const selectedAppointmentId = watch('appointmentId');
   const selectedItem = queue.data?.find((item) => item.appointment.appointmentId === selectedAppointmentId);
   const appointmentStartsAt = selectedItem ? new Date(`${selectedItem.appointment.appointmentDate}T${selectedItem.appointment.appointmentTime}`) : null;
-  const consultationOpen = !appointmentStartsAt || appointmentStartsAt.getTime() <= Date.now();
+  const room = selectedItem ? roomState : readWaitingRoom(selectedItem?.appointment.appointmentId);
+  const roomStatus = consultationStatus(selectedItem?.appointment, room);
+  const doctorWindow = selectedItem ? doctorJoinWindow(selectedItem.appointment) : null;
+  const consultationOpen = !appointmentStartsAt || (Date.now() >= doctorWindow.opensAt.getTime() && Date.now() <= doctorWindow.closesAt.getTime());
   const mutation = useMutation({
     mutationFn: (data) => api.post('/doctor/consultation', {
       appointmentId: data.appointmentId,
@@ -35,6 +40,18 @@ export default function DoctorConsultation() {
   useEffect(() => {
     if (!selectedAppointmentId && queue.data?.[0]?.appointment.appointmentId) setValue('appointmentId', queue.data[0].appointment.appointmentId);
   }, [queue.data, selectedAppointmentId, setValue]);
+
+  useEffect(() => {
+    if (!selectedItem?.appointment.appointmentId) return undefined;
+    setRoomState(readWaitingRoom(selectedItem.appointment.appointmentId));
+    const timer = setInterval(() => setRoomState(readWaitingRoom(selectedItem.appointment.appointmentId)), 1000);
+    return () => clearInterval(timer);
+  }, [selectedItem?.appointment.appointmentId]);
+
+  const joinAsDoctor = () => {
+    if (!selectedItem?.appointment.appointmentId || !consultationOpen) return;
+    setRoomState(writeWaitingRoom(selectedItem.appointment.appointmentId, { doctorJoined: true }));
+  };
 
   return (
     <div>
@@ -66,11 +83,24 @@ export default function DoctorConsultation() {
               <div className="rounded-md border border-slate-200 p-4">
                 <p className="text-sm font-semibold text-slate-500">Consultation</p>
                 <p className="mt-1 flex items-center gap-2 font-bold text-slate-950"><CalendarClock size={18} /> {selectedItem.appointment.consultationMode}</p>
-                {!consultationOpen && <p className="mt-2 text-sm font-semibold text-orange-700">Opens at scheduled time.</p>}
+                <p className="mt-2 text-sm font-semibold text-clinic-700">Room: {roomStatus}</p>
+                {!consultationOpen && <p className="mt-2 text-sm font-semibold text-orange-700">Doctor window opens 15 min before and closes 30 min after appointment.</p>}
               </div>
             </div>
           )}
         </section>
+
+        {selectedItem && (
+          <section className="card">
+            <h2 className="section-title">Waiting Room Control</h2>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-500">Patient</p><p className="mt-1 font-bold text-slate-950">{room.patientJoined ? 'WAITING' : 'Not joined'}</p></div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-500">Doctor</p><p className="mt-1 font-bold text-slate-950">{room.doctorJoined ? 'Joined' : 'Not joined'}</p></div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-500">State</p><p className="mt-1 font-bold text-clinic-700">{roomStatus}</p></div>
+            </div>
+            <button className="btn-primary mt-4" type="button" disabled={!consultationOpen || room.doctorJoined} onClick={joinAsDoctor}>Start Consultation</button>
+          </section>
+        )}
 
         {selectedItem && (
           <section className="grid gap-4 lg:grid-cols-2">

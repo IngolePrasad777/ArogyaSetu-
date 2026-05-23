@@ -11,7 +11,9 @@ const nav = {
     ['Appointments', '/patient/appointments', CalendarDays],
     ['Consultation', '/patient/consultation', Users],
     ['EHR', '/patient/ehr', FileText],
-    ['Notifications', '/patient/notifications', Bell]
+    ['Notifications', '/patient/notifications', Bell],
+    ['Follow-up', '/patient/follow-up', FileClock],
+    ['Offline Queue', '/patient/offline-queue', WifiOff]
   ],
   DOCTOR: [
     ['Dashboard', '/doctor', Home],

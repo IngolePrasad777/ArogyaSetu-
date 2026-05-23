@@ -5,6 +5,7 @@ import EmptyState from '../../components/EmptyState.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import { fetchDoctorQueue } from '../../services/doctorApi.js';
 import { formatDateTime, patientName, priorityTone } from '../../utils/doctorWorkspace.js';
+import { consultationStatus, doctorJoinWindow, readWaitingRoom } from '../../utils/patientWorkspace.js';
 
 export default function DoctorAppointments() {
   const queue = useQuery({ queryKey: ['doctor-queue'], queryFn: fetchDoctorQueue });
@@ -20,6 +21,10 @@ export default function DoctorAppointments() {
           const appointment = item.appointment;
           const symptom = item.latestSymptom;
           const level = symptom?.triageLevel || 'LOW';
+          const room = readWaitingRoom(appointment.appointmentId);
+          const patientStatus = consultationStatus(appointment, room);
+          const { opensAt, closesAt } = doctorJoinWindow(appointment);
+          const doctorCanJoin = Date.now() >= opensAt.getTime() && Date.now() <= closesAt.getTime();
           return (
             <article className={`card border-l-4 ${priorityTone(level)}`} key={appointment.appointmentId}>
               <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
@@ -41,6 +46,7 @@ export default function DoctorAppointments() {
                       <p className="text-sm font-semibold text-slate-500">Appointment</p>
                       <p className="mt-1 flex items-center gap-2 font-semibold text-slate-900"><CalendarClock size={18} /> {formatDateTime(appointment.appointmentDate, appointment.appointmentTime)}</p>
                       <p className="mt-1 text-sm text-slate-500">{appointment.consultationMode} · {appointment.status}</p>
+                      <p className="mt-1 text-sm font-semibold text-clinic-700">Patient Status: {patientStatus}</p>
                     </div>
                   </div>
                 </div>
@@ -48,9 +54,10 @@ export default function DoctorAppointments() {
                   <Link className="btn-secondary" to={`/doctor/patients/${appointment.patientId}`}>
                     <FileText size={18} /> Open EHR
                   </Link>
-                  <Link className="btn-primary" to={`/doctor/consultation?appointmentId=${appointment.appointmentId}`}>
+                  <Link className={`btn-primary ${doctorCanJoin ? '' : 'pointer-events-none opacity-60'}`} to={`/doctor/consultation?appointmentId=${appointment.appointmentId}`}>
                     <Stethoscope size={18} /> Start Consultation
                   </Link>
+                  {!doctorCanJoin && <p className="text-xs font-semibold text-orange-700">Doctor window opens 15 min before appointment.</p>}
                 </div>
               </div>
             </article>

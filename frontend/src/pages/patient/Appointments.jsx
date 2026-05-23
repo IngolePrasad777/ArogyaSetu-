@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, PhoneCall, Search, ShieldAlert, Stethoscope, Video } from 'lucide-react';
+import { CalendarClock, CheckCircle2, PhoneCall, Search, ShieldAlert, Stethoscope, Video } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import EmptyState from '../../components/EmptyState.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import { api } from '../../services/api.js';
 import { availableDoctorSlots, displaySlot, matchesSpecialization, SPECIALIZATIONS } from '../../utils/doctorSlots.js';
-import { emergencyChips } from '../../utils/patientWorkspace.js';
+import { emergencyChips, formatShortDate, formatTime } from '../../utils/patientWorkspace.js';
 
 export default function PatientAppointments() {
   const qc = useQueryClient();
@@ -59,6 +59,10 @@ export default function PatientAppointments() {
       consultationMode: data.consultationMode
     });
   };
+  const confirmedAppointment = book.data?.data;
+  const confirmedDoctor = confirmedAppointment
+    ? (doctors.data || []).find((doctor) => doctor.doctorId === confirmedAppointment.doctorId) || selectedDoctor
+    : null;
 
   return (
     <div>
@@ -87,7 +91,7 @@ export default function PatientAppointments() {
           </div>
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
             <p><span className="font-semibold text-slate-900">Selected:</span> {watch('consultationMode')}</p>
-            <p className="mt-1"><span className="font-semibold text-slate-900">Fallback:</span> Audio -> Chat -> Async</p>
+            <p className="mt-1"><span className="font-semibold text-slate-900">Fallback:</span> Audio &gt; Chat &gt; Async</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {SPECIALIZATIONS.map((item) => (
@@ -150,7 +154,28 @@ export default function PatientAppointments() {
           <button className="btn-primary mt-4 w-full" disabled={!selectedDoctor || !selectedSlot || book.isPending}>
             <Video size={18} /> {book.isPending ? 'Booking...' : `Book ${watch('consultationMode')} consultation`}
           </button>
-          {book.isSuccess && <p className="mt-3 text-sm font-semibold text-clinic-700">Appointment booked successfully.</p>}
+          {book.isSuccess && confirmedAppointment && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <p className="flex items-center gap-2 font-bold text-emerald-800"><CheckCircle2 size={18} /> Appointment confirmed</p>
+              <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                <div><dt className="font-semibold text-slate-500">Doctor</dt><dd>{confirmedDoctor?.fullName || 'Assigned doctor'}</dd></div>
+                <div><dt className="font-semibold text-slate-500">Time</dt><dd>{formatTime(confirmedAppointment.appointmentTime)}</dd></div>
+                <div><dt className="font-semibold text-slate-500">Date</dt><dd>{formatShortDate(confirmedAppointment.appointmentDate)}</dd></div>
+                <div><dt className="font-semibold text-slate-500">Status</dt><dd>{confirmedAppointment.status || 'SCHEDULED'}</dd></div>
+              </dl>
+              <p className="mt-3 text-sm font-semibold text-emerald-800">Join available: 10 min before appointment.</p>
+              <Link className="btn-secondary mt-3" to="/patient/consultation">Open consultation waiting room</Link>
+            </div>
+          )}
+        </section>
+
+        <section className="card">
+          <h2 className="section-title">Care Timeline</h2>
+          <div className="mt-4 grid gap-2 text-sm sm:grid-cols-5">
+            {['Booked', 'Waiting Room', 'Doctor Joined', 'Consultation', 'Prescription'].map((step) => (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-center font-semibold text-slate-700" key={step}>{step}</div>
+            ))}
+          </div>
         </section>
 
         <section className="card space-y-3">
@@ -170,6 +195,11 @@ export default function PatientAppointments() {
             <button type="button" className="btn-secondary"><Stethoscope size={18} /> Nearest Care</button>
             <button type="button" className="btn-secondary"><PhoneCall size={18} /> Call Assistant</button>
           </div>
+          <dl className="grid gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 sm:grid-cols-3">
+            <div><dt className="font-semibold">Emergency Priority</dt><dd>HIGH</dd></div>
+            <div><dt className="font-semibold">Emergency Doctor</dt><dd>On-call physician</dd></div>
+            <div><dt className="font-semibold">Estimated wait</dt><dd>5-10 min</dd></div>
+          </dl>
           {emergency.isSuccess && <p className="text-sm font-semibold text-clinic-700">Emergency appointment requested.</p>}
         </section>
       </form>

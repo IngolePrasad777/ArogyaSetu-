@@ -19,6 +19,11 @@ export async function queueOfflineRequest(config) {
   });
 }
 
+export async function getSyncQueue() {
+  const db = await dbPromise;
+  return db.getAll('syncQueue');
+}
+
 export async function drainSyncQueue(api) {
   const db = await dbPromise;
   const all = await db.getAll('syncQueue');
