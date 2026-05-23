@@ -6,73 +6,45 @@ import PageHeader from '../components/PageHeader.jsx';
 import { api } from '../services/api.js';
 import { useAuthStore } from '../store/authStore.js';
 
-const JITSI_DOMAIN = '8x8.vc';
-const JITSI_APP_ID = 'vpaas-magic-cookie-free'; // free tier, no account needed
-
-function roomNameFromChannel(channel) {
-  // 8x8.vc requires the room to be prefixed with the app ID
-  const safe = String(channel || 'consultation').replace(/[^a-zA-Z0-9-]/g, '-');
-  return `${JITSI_APP_ID}/ArogyaSetuPlus-${safe}`;
+// Room name derived only from appointmentId so doctor and patient always
+// land in the exact same room regardless of how they navigated here.
+function roomName(appointmentId) {
+  if (!appointmentId) return 'ArogyaSetuPlus-lobby';
+  return `ArogyaSetuPlus-${String(appointmentId).replace(/-/g, '')}`;
 }
 
-function directRoomName(channel) {
-  const safe = String(channel || 'consultation').replace(/[^a-zA-Z0-9-]/g, '-');
-  return `ArogyaSetuPlus-${safe}`;
-}
-
-function loadJitsiScript() {
-  return new Promise((resolve, reject) => {
-    if (window.JitsiMeetExternalAPI) { resolve(); return; }
-    const script = document.createElement('script');
-    script.src = `https://${JITSI_DOMAIN}/external_api.js`;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
-
-// After Jitsi creates its internal iframe, patch the allow attribute so the
-// browser grants camera/mic permissions to the meet.jit.si origin.
-function patchJitsiIframePermissions(container) {
-  const patch = () => {
-    const iframe = container?.querySelector('iframe');
-    if (iframe) {
-      iframe.setAttribute(
-        'allow',
-        'camera; microphone; fullscreen; display-capture; autoplay; clipboard-write'
-      );
-    }
-  };
-  // Jitsi creates the iframe asynchronously — observe until it appears
-  const observer = new MutationObserver(() => {
-    const iframe = container?.querySelector('iframe');
-    if (iframe) {
-      patch();
-      observer.disconnect();
-    }
-  });
-  if (container) observer.observe(container, { childList: true, subtree: true });
-  return observer;
+// Build a Jitsi URL that opens directly without login.
+// Using meet.jit.si with config params in the fragment bypasses the prejoin
+// and auth screens when opened as a top-level page (not embedded).
+function jitsiUrl(room, displayName) {
+  const fragment = [
+    'config.prejoinPageEnabled=false',
+    'config.prejoinConfig.enabled=false',
+    'config.requireDisplayName=false',
+    'config.startWithAudioMuted=false',
+    'config.startWithVideoMuted=false',
+    'config.disableDeepLinking=true',
+    'config.enableWelcomePage=false',
+    `userInfo.displayName="${encodeURIComponent(displayName)}"`,
+    'interfaceConfig.SHOW_JITSI_WATERMARK=false',
+    'interfaceConfig.TOOLBAR_ALWAYS_VISIBLE=true'
+  ].join('&');
+  return `https://meet.jit.si/${encodeURIComponent(room)}#${fragment}`;
 }
 
 export default function Meeting({ role }) {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { profile } = useAuthStore();
-  const containerRef = useRef(null);
-  const apiRef = useRef(null);
-  const observerRef = useRef(null);
-  const [joined, setJoined] = useState(false);
-  const [error, setError] = useState(null);
+  const windowRef = useRef(null);
+  const [opened, setOpened] = useState(false);
 
   const appointmentId = params.get('appointmentId');
-  const channel = params.get('channel') || `arogyasetu-${appointmentId || 'consultation'}`;
-  const roomName = roomNameFromChannel(channel);
+  const room = roomName(appointmentId);
   const displayName = role === 'doctor'
     ? `Dr ${profile?.email?.split('@')[0] || 'Doctor'}`
     : profile?.email?.split('@')[0] || 'Patient';
-  const directUrl = `https://${JITSI_DOMAIN}/${roomName}`;
+  const meetUrl = jitsiUrl(room, displayName);
 
   const completeConsultation = useMutation({
     mutationFn: () => api.post('/doctor/consultation', {
@@ -86,77 +58,26 @@ export default function Meeting({ role }) {
     }
   });
 
+  // Auto-open the meeting in a new tab when the page loads
   useEffect(() => {
-    let jitsiApi = null;
-
-    const init = async () => {
-      try {
-        await loadJitsiScript();
-
-        if (!containerRef.current || !window.JitsiMeetExternalAPI) {
-          setError('Jitsi script failed to load.');
-          return;
-        }
-
-        // Start observing before creating the API so we catch the iframe immediately
-        observerRef.current = patchJitsiIframePermissions(containerRef.current);
-
-        jitsiApi = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
-          roomName,
-          parentNode: containerRef.current,
-          width: '100%',
-          height: '100%',
-          userInfo: { displayName },
-          configOverwrite: {
-            prejoinPageEnabled: false,
-            prejoinConfig: { enabled: false },
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            disableDeepLinking: true,
-            enableWelcomePage: false,
-            disableInviteFunctions: true,
-            // Explicitly allow camera/mic inside the Jitsi config
-            constraints: {
-              video: { height: { ideal: 720, max: 1080, min: 240 } }
-            }
-          },
-          interfaceConfigOverwrite: {
-            SHOW_JITSI_WATERMARK: false,
-            SHOW_WATERMARK_FOR_GUESTS: false,
-            TOOLBAR_ALWAYS_VISIBLE: true
-          }
-        });
-
-        apiRef.current = jitsiApi;
-
-        jitsiApi.addEventListener('videoConferenceJoined', () => setJoined(true));
-        jitsiApi.addEventListener('readyToClose', () => {
-          navigate(role === 'doctor' ? '/doctor/consultation' : '/patient/consultation');
-        });
-        jitsiApi.addEventListener('errorOccurred', (e) => {
-          console.error('Jitsi error:', e);
-        });
-      } catch (err) {
-        console.error('Jitsi init error:', err);
-        setError('Could not load the meeting room. Use "Open in new tab" to join directly.');
-      }
-    };
-
-    init();
-
+    if (!opened) {
+      windowRef.current = window.open(meetUrl, `jitsi-${room}`);
+      setOpened(true);
+    }
     return () => {
-      observerRef.current?.disconnect();
-      if (apiRef.current) {
-        try { apiRef.current.dispose(); } catch (_) {}
-        apiRef.current = null;
-      }
+      // Don't close the window on unmount — user may still be in the call
     };
-  }, [roomName, displayName, role, navigate]);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openMeeting = () => {
+    if (windowRef.current && !windowRef.current.closed) {
+      windowRef.current.focus();
+    } else {
+      windowRef.current = window.open(meetUrl, `jitsi-${room}`);
+    }
+  };
 
   const leave = () => {
-    if (apiRef.current) {
-      try { apiRef.current.executeCommand('hangup'); } catch (_) {}
-    }
     navigate(role === 'doctor' ? '/doctor/consultation' : '/patient/consultation');
   };
 
@@ -166,7 +87,7 @@ export default function Meeting({ role }) {
         title="Video Consultation"
         eyebrow={role === 'doctor' ? 'Doctor meeting room' : 'Patient meeting room'}
       >
-        Jitsi room for this appointment. Doctor and patient join the same room automatically.
+        Jitsi meeting opened in a new tab. Doctor and patient join the same room automatically.
       </PageHeader>
 
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -176,15 +97,13 @@ export default function Meeting({ role }) {
             <span className="rounded-md bg-clinic-50 p-2 text-clinic-700"><Video size={20} /></span>
             <div>
               <h2 className="font-bold text-slate-950">ArogyaSetu+ Jitsi Meeting</h2>
-              <p className="text-sm text-slate-500">
-                Room: {roomName} · {joined ? '🟢 Connected' : '⏳ Connecting...'}
-              </p>
+              <p className="text-sm text-slate-500 font-mono break-all">Room: {room}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a className="btn-secondary" href={directUrl} target="_blank" rel="noreferrer">
-              <ExternalLink size={18} /> Open in new tab
-            </a>
+            <button className="btn-secondary" type="button" onClick={openMeeting}>
+              <ExternalLink size={18} /> {opened ? 'Rejoin / Focus tab' : 'Open Meeting'}
+            </button>
             {role === 'doctor' && (
               <button
                 className="btn-primary"
@@ -213,25 +132,61 @@ export default function Meeting({ role }) {
           </div>
         )}
 
-        {/* Camera permission hint — shown until joined */}
-        {!joined && !error && (
-          <div className="border-b border-clinic-100 bg-clinic-50 px-4 py-3 text-sm text-clinic-800">
-            <strong>Allow camera and microphone</strong> when your browser prompts. If you already denied it,
-            click the 🔒 icon in your browser address bar and reset permissions for this site.
+        {/* Main info panel */}
+        <div className="flex min-h-[480px] flex-col items-center justify-center gap-6 bg-slate-950 p-8 text-center">
+          <div className="rounded-full bg-clinic-700/20 p-6">
+            <Video className="text-clinic-400" size={56} />
           </div>
-        )}
+          <div>
+            <h3 className="text-xl font-bold text-white">
+              {opened ? 'Meeting is open in another tab' : 'Opening meeting...'}
+            </h3>
+            <p className="mt-2 text-slate-400">
+              The Jitsi room has been opened in a new browser tab.<br />
+              Both doctor and patient join the same room — <span className="font-mono text-clinic-400">{room}</span>
+            </p>
+          </div>
 
-        {error ? (
-          <div className="flex h-[72vh] min-h-[560px] flex-col items-center justify-center gap-4 bg-slate-950 p-8 text-center">
-            <Video className="text-slate-500" size={48} />
-            <p className="text-slate-300">{error}</p>
-            <a className="btn-primary" href={directUrl} target="_blank" rel="noreferrer">
-              <ExternalLink size={18} /> Open Jitsi in new tab
-            </a>
+          <div className="grid w-full max-w-md gap-3 rounded-lg border border-slate-700 bg-slate-900 p-4 text-left text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Your name in meeting</span>
+              <span className="font-semibold text-white">{displayName}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Role</span>
+              <span className="font-semibold text-white capitalize">{role}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Meeting link</span>
+              <a href={meetUrl} target="_blank" rel="noreferrer" className="font-semibold text-clinic-400 hover:underline">
+                Open directly ↗
+              </a>
+            </div>
           </div>
-        ) : (
-          <div ref={containerRef} className="h-[72vh] min-h-[560px] bg-slate-950" />
-        )}
+
+          <div className="flex flex-wrap justify-center gap-3">
+            <button className="btn-primary" type="button" onClick={openMeeting}>
+              <ExternalLink size={18} /> {opened ? 'Rejoin / Focus tab' : 'Open Meeting'}
+            </button>
+            {role === 'doctor' && (
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={!appointmentId || completeConsultation.isPending}
+                onClick={() => completeConsultation.mutate()}
+              >
+                <CheckCircle2 size={18} />
+                {completeConsultation.isPending ? 'Completing...' : 'Complete & go to prescription'}
+              </button>
+            )}
+          </div>
+
+          {opened && (
+            <p className="text-xs text-slate-500">
+              If the tab was blocked by your browser, click "Open Meeting" above or check your popup blocker.
+            </p>
+          )}
+        </div>
       </section>
     </div>
   );
