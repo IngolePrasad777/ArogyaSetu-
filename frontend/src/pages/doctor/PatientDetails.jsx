@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, FileText, HeartPulse, UserRound } from 'lucide-react';
+import { Activity, FileText, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../services/api.js';
@@ -10,12 +10,13 @@ const tabs = ['Profile', 'Symptoms', 'EHR', 'Reports', 'History'];
 export default function PatientDetails() {
   const { id } = useParams();
   const [tab, setTab] = useState('Profile');
+
   const patient = useQuery({ queryKey: ['doctor-patient', id], queryFn: async () => (await api.get(`/doctor/patients/${id}`)).data });
-  const symptoms = { data: [] };
-  const ehr = { data: null };
-  const consultations = { data: [] };
-  const prescriptions = { data: [] };
-  const latestSymptom = null;
+  const symptoms = useQuery({ queryKey: ['doctor-patient-symptoms', id], queryFn: async () => (await api.get(`/doctor/patients/${id}/symptoms`)).data });
+  const ehr = useQuery({ queryKey: ['doctor-patient-ehr', id], queryFn: async () => (await api.get(`/doctor/patients/${id}/ehr`)).data });
+  const consultations = useQuery({ queryKey: ['doctor-patient-consultations', id], queryFn: async () => (await api.get(`/doctor/patients/${id}/consultations`)).data });
+  const prescriptions = useQuery({ queryKey: ['doctor-patient-prescriptions', id], queryFn: async () => (await api.get(`/doctor/patients/${id}/prescriptions`)).data });
+  const latestSymptom = symptoms.data?.[0] || null;
 
   return (
     <div className="space-y-4">
@@ -66,11 +67,14 @@ export default function PatientDetails() {
 
       {tab === 'Symptoms' && (
         <section className="space-y-3">
+          {symptoms.isLoading && <p className="text-sm text-slate-500">Loading symptoms...</p>}
+          {!symptoms.isLoading && !symptoms.data?.length && <p className="card text-sm text-slate-500">No symptoms recorded.</p>}
           {symptoms.data?.map((symptom) => (
             <article className={`card border-l-4 ${priorityTone(symptom.triageLevel)}`} key={symptom.symptomId}>
               <p className="font-bold text-slate-950">{symptom.symptoms}</p>
               <p className="mt-2 text-sm text-slate-600">Duration: {symptom.duration || '-'} · Pain: {symptom.painLevel ?? '-'}</p>
               <p className="mt-2 text-sm text-slate-500">Suggested: {symptom.recommendedDoctor || '-'}</p>
+              <p className="mt-1 text-xs text-slate-400">{symptom.aiDisclaimer}</p>
             </article>
           ))}
         </section>
@@ -78,8 +82,8 @@ export default function PatientDetails() {
 
       {tab === 'EHR' && (
         <section className="grid gap-4 md:grid-cols-2">
-          <div className="card"><h3 className="section-title">Allergies</h3><p className="mt-3 text-slate-700">{ehr.data?.allergies || 'None recorded.'}</p></div>
-          <div className="card"><h3 className="section-title">Current Medications</h3><p className="mt-3 text-slate-700">{ehr.data?.currentMedications || 'None recorded.'}</p></div>
+          <div className="card"><h3 className="section-title">Allergies</h3><p className="mt-3 whitespace-pre-wrap text-slate-700">{ehr.data?.allergies || 'None recorded.'}</p></div>
+          <div className="card"><h3 className="section-title">Current Medications</h3><p className="mt-3 whitespace-pre-wrap text-slate-700">{ehr.data?.currentMedications || 'None recorded.'}</p></div>
           <div className="card md:col-span-2"><h3 className="section-title">Medical History</h3><p className="mt-3 whitespace-pre-wrap text-slate-700">{ehr.data?.medicalHistory || 'No medical history recorded.'}</p></div>
         </section>
       )}
@@ -87,7 +91,11 @@ export default function PatientDetails() {
       {tab === 'Reports' && (
         <section className="card">
           <h3 className="section-title flex items-center gap-2"><FileText size={20} /> Reports</h3>
-          <p className="mt-3 whitespace-pre-wrap text-slate-700">{ehr.data?.reportsUrl || 'No reports uploaded yet.'}</p>
+          {ehr.data?.reportsUrl
+            ? ehr.data.reportsUrl.split('\n').filter(Boolean).map((url) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer" className="mt-3 block truncate text-sm font-semibold text-clinic-700 hover:underline">{url}</a>
+              ))
+            : <p className="mt-3 text-sm text-slate-500">No reports uploaded yet.</p>}
         </section>
       )}
 
@@ -96,15 +104,30 @@ export default function PatientDetails() {
           <div className="card">
             <h3 className="section-title">Past Consultations</h3>
             <div className="mt-4 space-y-3">
-              {consultations.data?.map((item) => <p className="rounded-md bg-slate-50 p-3 text-sm" key={item.consultationId}>{item.diagnosis || item.notes || item.mode}</p>)}
-              {!consultations.data?.length && <p className="text-sm text-slate-500">No consultations recorded.</p>}
+              {consultations.isLoading && <p className="text-sm text-slate-500">Loading...</p>}
+              {consultations.data?.map((item) => (
+                <div className="rounded-md bg-slate-50 p-3 text-sm" key={item.consultationId}>
+                  <p className="font-semibold text-slate-700">{item.mode}</p>
+                  <p className="mt-1 text-slate-600">{item.diagnosis || 'No diagnosis recorded.'}</p>
+                  {item.notes && <p className="mt-1 text-slate-500">{item.notes}</p>}
+                </div>
+              ))}
+              {!consultations.isLoading && !consultations.data?.length && <p className="text-sm text-slate-500">No consultations recorded.</p>}
             </div>
           </div>
           <div className="card">
             <h3 className="section-title">Prescriptions</h3>
             <div className="mt-4 space-y-3">
-              {prescriptions.data?.map((item) => <p className="rounded-md bg-slate-50 p-3 text-sm" key={item.prescriptionId}>{item.medicines}</p>)}
-              {!prescriptions.data?.length && <p className="text-sm text-slate-500">No prescriptions recorded.</p>}
+              {prescriptions.isLoading && <p className="text-sm text-slate-500">Loading...</p>}
+              {prescriptions.data?.map((item) => (
+                <div className="rounded-md bg-slate-50 p-3 text-sm" key={item.prescriptionId}>
+                  <p className="font-semibold text-slate-700">Code: {item.verificationCode}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-slate-600">{item.medicines}</p>
+                  {item.dosageInstructions && <p className="mt-1 text-slate-500">{item.dosageInstructions}</p>}
+                  {item.followUpAdvice && <p className="mt-1 text-slate-500">{item.followUpAdvice}</p>}
+                </div>
+              ))}
+              {!prescriptions.isLoading && !prescriptions.data?.length && <p className="text-sm text-slate-500">No prescriptions recorded.</p>}
             </div>
           </div>
         </section>

@@ -5,6 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    headers: {
+      'Permissions-Policy': 'camera=*, microphone=*, display-capture=*'
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

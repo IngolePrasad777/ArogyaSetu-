@@ -5,7 +5,7 @@ spring:
   application:
     name: arogyasetu-plus
   datasource:
-    url: jdbc:postgresql://${RDS_ENDPOINT:localhost}:${RDS_PORT:5432}/${RDS_DATABASE:postgres}?sslmode=require
+    url: jdbc:postgresql://${RDS_ENDPOINT:localhost}:${RDS_PORT:5432}/${RDS_DATABASE:postgres}?sslmode=${DB_SSL_MODE:disable}&sslfactory=org.postgresql.ssl.NonValidatingFactory
     username: ${RDS_USERNAME:postgres}
     password: ${RDS_PASSWORD:postgres}
   jpa:

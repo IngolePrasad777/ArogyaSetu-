@@ -15,7 +15,7 @@ export function riskTone(level) {
 
 export function latestAppointment(appointments = []) {
   const scheduled = appointments
-    .filter((item) => ['SCHEDULED', 'WAITING', 'READY', 'IN_PROGRESS'].includes(item.status))
+    .filter((item) => isActiveAppointment(item))
     .sort((a, b) => appointmentDateTime(a) - appointmentDateTime(b));
   return scheduled[0] || appointments[0];
 }
@@ -62,6 +62,24 @@ export function doctorJoinWindow(appointment) {
   };
 }
 
+export function patientConsultationWindow(appointment) {
+  const startsAt = appointmentDateTime(appointment);
+  return {
+    opensAt: new Date(startsAt.getTime() - 10 * 60000),
+    closesAt: new Date(startsAt.getTime() + 30 * 60000)
+  };
+}
+
+export function isAppointmentExpired(appointment) {
+  if (!appointment || ['COMPLETED', 'CANCELLED'].includes(appointment.status)) return appointment?.status === 'COMPLETED';
+  const { closesAt } = doctorJoinWindow(appointment);
+  return Date.now() > closesAt.getTime();
+}
+
+export function isActiveAppointment(appointment) {
+  return Boolean(appointment && ['SCHEDULED', 'WAITING', 'READY', 'IN_PROGRESS'].includes(appointment.status) && !isAppointmentExpired(appointment));
+}
+
 export function waitingRoomKey(appointmentId) {
   return `arogyasetu-waiting-room:${appointmentId}`;
 }
@@ -84,11 +102,23 @@ export function writeWaitingRoom(appointmentId, patch) {
 export function consultationStatus(appointment, room = readWaitingRoom(appointment?.appointmentId)) {
   if (!appointment) return 'SCHEDULED';
   if (appointment.status === 'COMPLETED') return 'COMPLETED';
+  if (isAppointmentExpired(appointment)) return 'EXPIRED';
   if (appointment.status === 'IN_PROGRESS') return 'IN_PROGRESS';
   if (room.patientJoined && room.doctorJoined) return 'READY';
   if (room.patientJoined) return 'WAITING_ROOM';
-  if (Date.now() >= patientJoinWindow(appointment).getTime()) return 'JOIN_AVAILABLE';
+  if (room.doctorJoined) return 'DOCTOR_WAITING';
+  const { opensAt, closesAt } = patientConsultationWindow(appointment);
+  if (Date.now() >= opensAt.getTime() && Date.now() <= closesAt.getTime()) return 'JOIN_AVAILABLE';
   return appointment.status || 'SCHEDULED';
+}
+
+export function meetingChannel(appointment) {
+  return `arogyasetu-${appointment?.appointmentId || 'consultation'}`;
+}
+
+export function meetingPath(role, appointment) {
+  const base = role === 'doctor' ? '/doctor/meeting' : '/patient/meeting';
+  return `${base}?appointmentId=${appointment.appointmentId}&channel=${encodeURIComponent(meetingChannel(appointment))}`;
 }
 
 export function aiExplanation(result, formValues = {}) {

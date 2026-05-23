@@ -8,10 +8,18 @@ import { sampleReports } from '../../utils/patientWorkspace.js';
 
 const tabs = ['Profile', 'Symptoms', 'Reports', 'Consultations', 'Prescriptions', 'Follow-up'];
 
+function prescriptionBlocks(history = '') {
+  return String(history || '')
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export default function PatientEhr() {
   const [tab, setTab] = useState('Profile');
   const ehr = useQuery({ queryKey: ['patient-ehr'], queryFn: async () => (await api.get('/patient/ehr')).data });
   const profile = useQuery({ queryKey: ['patient-profile'], queryFn: async () => (await api.get('/patient/profile')).data });
+  const prescriptions = prescriptionBlocks(ehr.data?.prescriptionHistory);
 
   return (
     <div>
@@ -54,7 +62,26 @@ export default function PatientEhr() {
         </section>
       )}
       {tab === 'Consultations' && <section className="card"><h2 className="section-title">Consultation History</h2><p className="mt-4 whitespace-pre-wrap text-slate-700">{ehr.data?.consultationHistory || 'No consultations recorded.'}</p></section>}
-      {tab === 'Prescriptions' && <section className="card"><h2 className="section-title">Prescriptions</h2><p className="mt-4 whitespace-pre-wrap text-slate-700">{ehr.data?.prescriptionHistory || 'No prescriptions recorded.'}</p></section>}
+      {tab === 'Prescriptions' && (
+        <section className="card">
+          <h2 className="section-title">Prescriptions</h2>
+          {!prescriptions.length && <p className="mt-4 text-slate-700">No prescriptions recorded.</p>}
+          <div className="mt-4 grid gap-3">
+            {prescriptions.map((prescription, index) => (
+              <article className="rounded-md border border-slate-200 bg-slate-50 p-4" key={`${index}-${prescription.slice(0, 20)}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">Prescription {prescriptions.length - index}</p>
+                    <p className="text-sm text-slate-500">Saved to patient EHR after doctor consultation</p>
+                  </div>
+                  <span className="pill">Active</span>
+                </div>
+                <pre className="mt-4 whitespace-pre-wrap rounded-md bg-white p-3 text-sm leading-6 text-slate-700">{prescription}</pre>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       {tab === 'Follow-up' && <section className="card"><h2 className="section-title">Follow-up</h2><p className="mt-4 text-slate-700">Follow-up advice and upcoming revisit reminders will appear here after consultation.</p></section>}
       <section className="card mt-4">
         <h2 className="section-title">Care Timeline</h2>

@@ -5,10 +5,12 @@ import EmptyState from '../../components/EmptyState.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import { fetchDoctorQueue } from '../../services/doctorApi.js';
 import { formatDateTime, patientName, priorityTone } from '../../utils/doctorWorkspace.js';
-import { consultationStatus, doctorJoinWindow, readWaitingRoom } from '../../utils/patientWorkspace.js';
+import { consultationStatus, doctorJoinWindow, isActiveAppointment, isAppointmentExpired, meetingPath, readWaitingRoom } from '../../utils/patientWorkspace.js';
 
 export default function DoctorAppointments() {
   const queue = useQuery({ queryKey: ['doctor-queue'], queryFn: fetchDoctorQueue });
+  const activeQueue = (queue.data || []).filter((item) => isActiveAppointment(item.appointment));
+  const pastQueue = (queue.data || []).filter((item) => isAppointmentExpired(item.appointment) || item.appointment.status === 'COMPLETED');
 
   return (
     <div>
@@ -16,8 +18,8 @@ export default function DoctorAppointments() {
         Open patient records, review AI priority and symptoms, then start the consultation from the assigned care queue.
       </PageHeader>
       <div className="space-y-4">
-        {!queue.data?.length && <EmptyState title="No assigned appointments" />}
-        {queue.data?.map((item) => {
+        {!activeQueue.length && <EmptyState title="No active appointments" message="Expired scheduled appointments are moved to the past appointments section." />}
+        {activeQueue.map((item) => {
           const appointment = item.appointment;
           const symptom = item.latestSymptom;
           const level = symptom?.triageLevel || 'LOW';
@@ -54,7 +56,7 @@ export default function DoctorAppointments() {
                   <Link className="btn-secondary" to={`/doctor/patients/${appointment.patientId}`}>
                     <FileText size={18} /> Open EHR
                   </Link>
-                  <Link className={`btn-primary ${doctorCanJoin ? '' : 'pointer-events-none opacity-60'}`} to={`/doctor/consultation?appointmentId=${appointment.appointmentId}`}>
+                  <Link className={`btn-primary ${doctorCanJoin ? '' : 'pointer-events-none opacity-60'}`} to={room.patientJoined && room.doctorJoined ? meetingPath('doctor', appointment) : `/doctor/consultation?appointmentId=${appointment.appointmentId}`}>
                     <Stethoscope size={18} /> Start Consultation
                   </Link>
                   {!doctorCanJoin && <p className="text-xs font-semibold text-orange-700">Doctor window opens 15 min before appointment.</p>}
@@ -63,6 +65,24 @@ export default function DoctorAppointments() {
             </article>
           );
         })}
+        {!!pastQueue.length && (
+          <section className="card">
+            <h2 className="section-title">Past Appointments</h2>
+            <div className="mt-4 space-y-3">
+              {pastQueue.map((item) => (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-4" key={item.appointment.appointmentId}>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-bold text-slate-950">{patientName(item.patient)}</p>
+                      <p className="text-sm text-slate-500">{formatDateTime(item.appointment.appointmentDate, item.appointment.appointmentTime)} · {item.appointment.consultationMode}</p>
+                    </div>
+                    <span className="pill">{item.appointment.status === 'COMPLETED' ? 'COMPLETED' : 'EXPIRED'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

@@ -6,18 +6,21 @@ import StatCard from '../../components/StatCard.jsx';
 import { api } from '../../services/api.js';
 import { fetchDoctorQueue } from '../../services/doctorApi.js';
 import { formatDateTime, patientName, priorityTone, todayIso, triageCounts } from '../../utils/doctorWorkspace.js';
+import { isActiveAppointment, isAppointmentExpired } from '../../utils/patientWorkspace.js';
 
 export default function DoctorDashboard() {
   const appointments = useQuery({ queryKey: ['doctor-appointments'], queryFn: async () => (await api.get('/doctor/appointments')).data });
   const queue = useQuery({ queryKey: ['doctor-queue'], queryFn: fetchDoctorQueue });
   const queueItems = queue.data || [];
+  const activeQueue = queueItems.filter((item) => isActiveAppointment(item.appointment));
+  const pastQueue = queueItems.filter((item) => isAppointmentExpired(item.appointment) || item.appointment.status === 'COMPLETED');
   const today = todayIso();
-  const todaysAppointments = queueItems.filter((item) => item.appointment.appointmentDate === today);
-  const pending = queueItems.filter((item) => item.appointment.status === 'SCHEDULED');
-  const completedToday = queueItems.filter((item) => item.appointment.status === 'COMPLETED' && item.appointment.appointmentDate === today);
-  const emergencyCases = queueItems.filter((item) => ['HIGH', 'EMERGENCY'].includes(item.latestSymptom?.triageLevel));
+  const todaysAppointments = activeQueue.filter((item) => item.appointment.appointmentDate === today);
+  const pending = activeQueue.filter((item) => item.appointment.status === 'SCHEDULED');
+  const completedToday = pastQueue.filter((item) => item.appointment.status === 'COMPLETED' && item.appointment.appointmentDate === today);
+  const emergencyCases = activeQueue.filter((item) => ['HIGH', 'EMERGENCY'].includes(item.latestSymptom?.triageLevel));
   const followUpsDue = queueItems.filter((item) => item.appointment.status === 'COMPLETED').length;
-  const counts = triageCounts(queueItems);
+  const counts = triageCounts(activeQueue);
 
   return (
     <div>
@@ -26,7 +29,7 @@ export default function DoctorDashboard() {
       </PageHeader>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard icon={CalendarDays} label="Today's Appointments" value={todaysAppointments.length} />
-        <StatCard icon={Clock} tone="amber" label="Pending Consultations" value={pending.length || appointments.data?.filter((item) => item.status === 'SCHEDULED').length || 0} />
+        <StatCard icon={Clock} tone="amber" label="Pending Consultations" value={pending.length || appointments.data?.filter((item) => item.status === 'SCHEDULED' && isActiveAppointment(item)).length || 0} />
         <StatCard icon={AlertTriangle} tone="rose" label="Emergency Cases" value={emergencyCases.length} />
         <StatCard icon={TimerReset} tone="blue" label="Follow-ups Due" value={followUpsDue} />
         <StatCard icon={CheckCircle2} label="Completed Today" value={completedToday.length} />
@@ -39,7 +42,7 @@ export default function DoctorDashboard() {
             <Link className="btn-secondary py-2" to="/doctor/appointments">View all</Link>
           </div>
           <div className="mt-4 space-y-3">
-            {queueItems.slice(0, 5).map((item) => (
+            {todaysAppointments.slice(0, 5).map((item) => (
               <div className="rounded-md border border-slate-200 p-4" key={item.appointment.appointmentId}>
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -51,7 +54,12 @@ export default function DoctorDashboard() {
                 <p className="mt-3 text-sm text-slate-600">{item.latestSymptom?.symptoms || 'No symptom summary recorded yet.'}</p>
               </div>
             ))}
-            {!queueItems.length && <p className="py-4 text-sm text-slate-500">No appointments assigned.</p>}
+            {!todaysAppointments.length && <p className="py-4 text-sm text-slate-500">No active appointments for today.</p>}
+            {!!pastQueue.length && (
+              <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                {pastQueue.length} expired or completed appointment{pastQueue.length > 1 ? 's' : ''} moved to past appointments.
+              </div>
+            )}
           </div>
         </section>
         <section className="card">

@@ -2,15 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, CheckCircle2, FilePlus2, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader.jsx';
 import { api } from '../../services/api.js';
 import { fetchDoctorQueue } from '../../services/doctorApi.js';
 import { formatDateTime, patientName, priorityTone } from '../../utils/doctorWorkspace.js';
-import { consultationStatus, doctorJoinWindow, readWaitingRoom, writeWaitingRoom } from '../../utils/patientWorkspace.js';
+import { consultationStatus, doctorJoinWindow, isActiveAppointment, meetingPath, readWaitingRoom, writeWaitingRoom } from '../../utils/patientWorkspace.js';
 
 export default function DoctorConsultation() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [roomState, setRoomState] = useState({ patientJoined: false, doctorJoined: false });
   const { register, handleSubmit, setValue, watch } = useForm({
@@ -23,7 +24,7 @@ export default function DoctorConsultation() {
   const room = selectedItem ? roomState : readWaitingRoom(selectedItem?.appointment.appointmentId);
   const roomStatus = consultationStatus(selectedItem?.appointment, room);
   const doctorWindow = selectedItem ? doctorJoinWindow(selectedItem.appointment) : null;
-  const consultationOpen = !appointmentStartsAt || (Date.now() >= doctorWindow.opensAt.getTime() && Date.now() <= doctorWindow.closesAt.getTime());
+  const consultationOpen = Boolean(selectedItem && isActiveAppointment(selectedItem.appointment) && Date.now() >= doctorWindow.opensAt.getTime() && Date.now() <= doctorWindow.closesAt.getTime());
   const mutation = useMutation({
     mutationFn: (data) => api.post('/doctor/consultation', {
       appointmentId: data.appointmentId,
@@ -48,9 +49,15 @@ export default function DoctorConsultation() {
     return () => clearInterval(timer);
   }, [selectedItem?.appointment.appointmentId]);
 
+  useEffect(() => {
+    if (selectedItem && roomStatus === 'READY') navigate(meetingPath('doctor', selectedItem.appointment));
+  }, [navigate, roomStatus, selectedItem]);
+
   const joinAsDoctor = () => {
     if (!selectedItem?.appointment.appointmentId || !consultationOpen) return;
-    setRoomState(writeWaitingRoom(selectedItem.appointment.appointmentId, { doctorJoined: true }));
+    const next = writeWaitingRoom(selectedItem.appointment.appointmentId, { doctorJoined: true });
+    setRoomState(next);
+    navigate(meetingPath('doctor', selectedItem.appointment));
   };
 
   return (
@@ -63,7 +70,7 @@ export default function DoctorConsultation() {
           <label>
             <span className="text-sm font-semibold text-slate-600">Appointment</span>
             <select className="input mt-2" {...register('appointmentId', { required: true })}>
-              {queue.data?.map((item) => (
+                  {queue.data?.filter((item) => isActiveAppointment(item.appointment)).map((item) => (
                 <option key={item.appointment.appointmentId} value={item.appointment.appointmentId}>
                   {patientName(item.patient)} - {item.appointment.appointmentDate} {item.appointment.appointmentTime} - {item.appointment.status}
                 </option>
@@ -84,7 +91,7 @@ export default function DoctorConsultation() {
                 <p className="text-sm font-semibold text-slate-500">Consultation</p>
                 <p className="mt-1 flex items-center gap-2 font-bold text-slate-950"><CalendarClock size={18} /> {selectedItem.appointment.consultationMode}</p>
                 <p className="mt-2 text-sm font-semibold text-clinic-700">Room: {roomStatus}</p>
-                {!consultationOpen && <p className="mt-2 text-sm font-semibold text-orange-700">Doctor window opens 15 min before and closes 30 min after appointment.</p>}
+                {!consultationOpen && <p className="mt-2 text-sm font-semibold text-orange-700">{roomStatus === 'EXPIRED' ? 'This appointment window has expired and moved to past appointments.' : 'Doctor window opens 15 min before and closes 30 min after appointment.'}</p>}
               </div>
             </div>
           )}
@@ -98,7 +105,12 @@ export default function DoctorConsultation() {
               <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-500">Doctor</p><p className="mt-1 font-bold text-slate-950">{room.doctorJoined ? 'Joined' : 'Not joined'}</p></div>
               <div className="rounded-md border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-500">State</p><p className="mt-1 font-bold text-clinic-700">{roomStatus}</p></div>
             </div>
-            <button className="btn-primary mt-4" type="button" disabled={!consultationOpen || room.doctorJoined} onClick={joinAsDoctor}>Start Consultation</button>
+            {room.doctorJoined ? (
+              <Link className="btn-primary mt-4" to={meetingPath('doctor', selectedItem.appointment)}>Open Agora Meeting</Link>
+            ) : (
+              <button className="btn-primary mt-4" type="button" disabled={!consultationOpen || room.doctorJoined} onClick={joinAsDoctor}>Start Consultation</button>
+            )}
+            {room.doctorJoined && !room.patientJoined && <p className="mt-3 text-sm font-semibold text-clinic-700">Doctor joined. Waiting for patient to enter the waiting room.</p>}
           </section>
         )}
 

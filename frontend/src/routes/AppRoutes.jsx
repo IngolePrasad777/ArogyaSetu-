@@ -1,10 +1,10 @@
 import { Route, Routes } from 'react-router-dom';
-import { AgoraProvider } from '../contexts/AgoraContext.jsx';
 import AppLayout from '../layouts/AppLayout.jsx';
 import ProtectedRoute from './ProtectedRoute.jsx';
 import Login from '../pages/Login.jsx';
 import Register from '../pages/Register.jsx';
 import Landing from '../pages/Landing.jsx';
+import Meeting from '../pages/Meeting.jsx';
 import PatientDashboard from '../pages/patient/Dashboard.jsx';
 import Symptoms from '../pages/patient/Symptoms.jsx';
 import PatientAppointments from '../pages/patient/Appointments.jsx';
@@ -31,8 +31,7 @@ import DoctorVerification from '../pages/admin/DoctorVerification.jsx';
 
 export default function AppRoutes() {
   return (
-    <AgoraProvider>
-      <Routes>
+    <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
@@ -42,6 +41,7 @@ export default function AppRoutes() {
             <Route path="symptoms" element={<Symptoms />} />
             <Route path="appointments" element={<PatientAppointments />} />
             <Route path="consultation" element={<PatientConsultation />} />
+            <Route path="meeting" element={<Meeting role="patient" />} />
             <Route path="ehr" element={<PatientEhr />} />
             <Route path="notifications" element={<PatientNotifications />} />
             <Route path="follow-up" element={<PatientFollowUp />} />
@@ -56,6 +56,7 @@ export default function AppRoutes() {
             <Route path="patients/:id" element={<PatientDetails />} />
             <Route path="ehr" element={<DoctorEhr />} />
             <Route path="consultation" element={<DoctorConsultation />} />
+            <Route path="meeting" element={<Meeting role="doctor" />} />
             <Route path="prescription" element={<Prescription />} />
             <Route path="ai-alerts" element={<AiAlerts />} />
             <Route path="notifications" element={<DoctorNotifications />} />
@@ -71,7 +72,6 @@ export default function AppRoutes() {
             <Route path="doctor-verification" element={<DoctorVerification />} />
           </Route>
         </Route>
-      </Routes>
-    </AgoraProvider>
+    </Routes>
   );
 }

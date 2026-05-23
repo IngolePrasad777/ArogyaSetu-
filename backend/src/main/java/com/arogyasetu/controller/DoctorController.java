@@ -57,8 +57,8 @@ public class DoctorController {
     }
 
     @PostMapping("/consultation")
-    public ConsultationResponse consultation(@Valid @RequestBody ConsultationRequest request) {
-        return consultationService.start(request);
+    public ConsultationResponse consultation(@AuthenticationPrincipal User user, @Valid @RequestBody ConsultationRequest request) {
+        return consultationService.start(user, request);
     }
 
     @PostMapping("/prescription")

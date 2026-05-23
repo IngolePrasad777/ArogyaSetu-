@@ -80,9 +80,22 @@ public class PatientService {
         return url;
     }
 
+    @Transactional
     public EhrResponse ehr(User user) {
         Patient patient = patientFor(user);
-        Ehr ehr = ehrs.findByPatientPatientId(patient.getPatientId()).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EHR not found"));
+        Ehr ehr = ehrs.findByPatientPatientId(patient.getPatientId()).orElseGet(() -> {
+            Ehr blank = Ehr.builder()
+                    .patient(patient)
+                    .medicalHistory("")
+                    .allergies("")
+                    .currentMedications("")
+                    .consultationHistory("")
+                    .prescriptionHistory("")
+                    .reportsUrl("")
+                    .build();
+            auditService.record("EHR_CREATED", "EHR", null, "Auto-created on first access");
+            return ehrs.save(blank);
+        });
         return new EhrResponse(ehr.getEhrId(), patient.getPatientId(), ehr.getMedicalHistory(), ehr.getAllergies(), ehr.getCurrentMedications(), ehr.getReportsUrl(),
                 ehr.getConsultationHistory(), ehr.getPrescriptionHistory(), ehr.getUpdatedAt());
     }

@@ -32,8 +32,23 @@ public class EhrService {
         return toResponse(ehr);
     }
 
+    @Transactional
     public EhrResponse get(UUID patientId) {
-        return toResponse(ehrs.findByPatientPatientId(patientId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EHR not found")));
+        Patient patient = patients.findById(patientId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Patient not found"));
+        Ehr ehr = ehrs.findByPatientPatientId(patientId).orElseGet(() -> {
+            auditService.record("EHR_CREATED", "EHR", null, "Auto-created on first access for patient " + patientId);
+            return ehrs.save(Ehr.builder()
+                    .patient(patient)
+                    .medicalHistory("")
+                    .allergies("")
+                    .currentMedications("")
+                    .consultationHistory("")
+                    .prescriptionHistory("")
+                    .reportsUrl("")
+                    .build());
+        });
+        return toResponse(ehr);
     }
 
     @Transactional

@@ -74,16 +74,24 @@ public class DoctorService {
                 .dosageInstructions(request.dosageInstructions()).followUpAdvice(request.followUpAdvice())
                 .verificationCode("RX-" + UUID.randomUUID()).build());
         Patient patient = consultation.getAppointment().getPatient();
-        EhrResponseUpdater.appendPrescription(ehrService, patient.getPatientId(), request.medicines());
+        EhrResponseUpdater.appendPrescription(ehrService, patient.getPatientId(), """
+                Prescription created
+                Medicines:
+                %s
+                Dosage and diagnosis:
+                %s
+                Follow-up:
+                %s
+                """.formatted(request.medicines(), request.dosageInstructions(), request.followUpAdvice()));
         return new PrescriptionResponse(prescription.getPrescriptionId(), consultation.getConsultationId(), prescription.getMedicines(),
                 prescription.getDosageInstructions(), prescription.getFollowUpAdvice(), prescription.getVerificationCode(), prescription.getCreatedAt());
     }
 
     private static final class EhrResponseUpdater {
-        static void appendPrescription(EhrService ehrService, UUID patientId, String medicine) {
+        static void appendPrescription(EhrService ehrService, UUID patientId, String prescriptionSummary) {
             var ehr = ehrService.get(patientId);
             ehrService.update(new com.arogyasetu.dto.DomainDtos.EhrRequest(patientId, ehr.medicalHistory(), ehr.allergies(), ehr.currentMedications(), ehr.reportsUrl(),
-                    ehr.consultationHistory(), (ehr.prescriptionHistory() == null ? "" : ehr.prescriptionHistory() + "\n") + medicine));
+                    ehr.consultationHistory(), (ehr.prescriptionHistory() == null ? "" : ehr.prescriptionHistory() + "\n\n") + prescriptionSummary));
         }
     }
 
