@@ -24,7 +24,9 @@ export default function DoctorConsultation() {
   const room = selectedItem ? roomState : readWaitingRoom(selectedItem?.appointment.appointmentId);
   const roomStatus = consultationStatus(selectedItem?.appointment, room);
   const doctorWindow = selectedItem ? doctorJoinWindow(selectedItem.appointment) : null;
-  const consultationOpen = Boolean(selectedItem && isActiveAppointment(selectedItem.appointment) && Date.now() >= doctorWindow.opensAt.getTime() && Date.now() <= doctorWindow.closesAt.getTime());
+  // TODO: restore time-gated check:
+  // const consultationOpen = Boolean(selectedItem && isActiveAppointment(selectedItem.appointment) && Date.now() >= doctorWindow.opensAt.getTime() && Date.now() <= doctorWindow.closesAt.getTime());
+  const consultationOpen = Boolean(selectedItem); // always open for testing
   const mutation = useMutation({
     mutationFn: (data) => api.post('/doctor/consultation', {
       appointmentId: data.appointmentId,

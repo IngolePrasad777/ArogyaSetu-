@@ -30,7 +30,9 @@ export default function PatientConsultation() {
   const startsAt = appointment ? appointmentDateTime(appointment) : null;
   const unlockAt = appointment ? patientJoinWindow(appointment) : null;
   const patientWindow = appointment ? patientConsultationWindow(appointment) : null;
-  const canJoin = Boolean(appointment && isActiveAppointment(appointment) && Date.now() >= patientWindow.opensAt.getTime() && Date.now() <= patientWindow.closesAt.getTime());
+  // TODO: restore time-gated check:
+  // const canJoin = Boolean(appointment && isActiveAppointment(appointment) && Date.now() >= patientWindow.opensAt.getTime() && Date.now() <= patientWindow.closesAt.getTime());
+  const canJoin = Boolean(appointment); // always open for testing
   const status = consultationStatus(appointment, room);
   const videoReady = ['READY', 'IN_PROGRESS'].includes(status);
 

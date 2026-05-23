@@ -6,10 +6,18 @@ import PageHeader from '../components/PageHeader.jsx';
 import { api } from '../services/api.js';
 import { useAuthStore } from '../store/authStore.js';
 
-const JITSI_DOMAIN = 'meet.jit.si';
+const JITSI_DOMAIN = '8x8.vc';
+const JITSI_APP_ID = 'vpaas-magic-cookie-free'; // free tier, no account needed
 
 function roomNameFromChannel(channel) {
-  return `ArogyaSetuPlus-${String(channel || 'consultation').replace(/[^a-zA-Z0-9-]/g, '-')}`;
+  // 8x8.vc requires the room to be prefixed with the app ID
+  const safe = String(channel || 'consultation').replace(/[^a-zA-Z0-9-]/g, '-');
+  return `${JITSI_APP_ID}/ArogyaSetuPlus-${safe}`;
+}
+
+function directRoomName(channel) {
+  const safe = String(channel || 'consultation').replace(/[^a-zA-Z0-9-]/g, '-');
+  return `ArogyaSetuPlus-${safe}`;
 }
 
 function loadJitsiScript() {
@@ -64,7 +72,7 @@ export default function Meeting({ role }) {
   const displayName = role === 'doctor'
     ? `Dr ${profile?.email?.split('@')[0] || 'Doctor'}`
     : profile?.email?.split('@')[0] || 'Patient';
-  const directUrl = `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}`;
+  const directUrl = `https://${JITSI_DOMAIN}/${roomName}`;
 
   const completeConsultation = useMutation({
     mutationFn: () => api.post('/doctor/consultation', {

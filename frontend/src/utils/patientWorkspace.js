@@ -51,33 +51,40 @@ export function formatCountdown(targetDate) {
 
 export function patientJoinWindow(appointment) {
   const startsAt = appointmentDateTime(appointment);
-  return new Date(startsAt.getTime() - 10 * 60000);
+  // TODO: restore to: new Date(startsAt.getTime() - 10 * 60000)
+  return new Date(startsAt.getTime() - 10 * 60000 * 1000); // effectively always open
 }
 
 export function doctorJoinWindow(appointment) {
   const startsAt = appointmentDateTime(appointment);
+  // TODO: restore to: opensAt = startsAt - 15min, closesAt = startsAt + 30min
   return {
-    opensAt: new Date(startsAt.getTime() - 15 * 60000),
-    closesAt: new Date(startsAt.getTime() + 30 * 60000)
+    opensAt: new Date(0),           // always open
+    closesAt: new Date(8640000000000000) // never closes
   };
 }
 
 export function patientConsultationWindow(appointment) {
   const startsAt = appointmentDateTime(appointment);
+  // TODO: restore to: opensAt = startsAt - 10min, closesAt = startsAt + 30min
   return {
-    opensAt: new Date(startsAt.getTime() - 10 * 60000),
-    closesAt: new Date(startsAt.getTime() + 30 * 60000)
+    opensAt: new Date(0),           // always open
+    closesAt: new Date(8640000000000000) // never closes
   };
 }
 
 export function isAppointmentExpired(appointment) {
-  if (!appointment || ['COMPLETED', 'CANCELLED'].includes(appointment.status)) return appointment?.status === 'COMPLETED';
-  const { closesAt } = doctorJoinWindow(appointment);
-  return Date.now() > closesAt.getTime();
+  if (!appointment) return false;
+  if (appointment.status === 'CANCELLED') return true;
+  // TODO: restore expiry check — currently disabled for testing
+  // const { closesAt } = doctorJoinWindow(appointment);
+  // return Date.now() > closesAt.getTime();
+  return false;
 }
 
 export function isActiveAppointment(appointment) {
-  return Boolean(appointment && ['SCHEDULED', 'WAITING', 'READY', 'IN_PROGRESS'].includes(appointment.status) && !isAppointmentExpired(appointment));
+  // TODO: restore to only SCHEDULED/WAITING/READY/IN_PROGRESS — currently includes COMPLETED for testing
+  return Boolean(appointment && ['SCHEDULED', 'WAITING', 'READY', 'IN_PROGRESS', 'COMPLETED'].includes(appointment.status) && !isAppointmentExpired(appointment));
 }
 
 export function waitingRoomKey(appointmentId) {
