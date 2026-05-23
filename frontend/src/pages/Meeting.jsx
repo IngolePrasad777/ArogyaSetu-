@@ -1,42 +1,76 @@
-import AgoraRTC from 'agora-rtc-sdk-ng';
 import { useMutation } from '@tanstack/react-query';
-import { CheckCircle2, LogOut, Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import { CheckCircle2, ExternalLink, LogOut, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import PageHeader from '../components/PageHeader.jsx';
 import { api } from '../services/api.js';
 import { useAuthStore } from '../store/authStore.js';
 
-const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
+const JITSI_DOMAIN = 'meet.jit.si';
 
-// Derive a numeric UID from the user's role so doctor and patient get different UIDs
-function uidFromRole(role) {
-  return role === 'doctor' ? 1 : 2;
+function roomNameFromChannel(channel) {
+  return `ArogyaSetuPlus-${String(channel || 'consultation').replace(/[^a-zA-Z0-9-]/g, '-')}`;
+}
+
+function loadJitsiScript() {
+  return new Promise((resolve, reject) => {
+    if (window.JitsiMeetExternalAPI) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = `https://${JITSI_DOMAIN}/external_api.js`;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+// After Jitsi creates its internal iframe, patch the allow attribute so the
+// browser grants camera/mic permissions to the meet.jit.si origin.
+function patchJitsiIframePermissions(container) {
+  const patch = () => {
+    const iframe = container?.querySelector('iframe');
+    if (iframe) {
+      iframe.setAttribute(
+        'allow',
+        'camera; microphone; fullscreen; display-capture; autoplay; clipboard-write'
+      );
+    }
+  };
+  // Jitsi creates the iframe asynchronously — observe until it appears
+  const observer = new MutationObserver(() => {
+    const iframe = container?.querySelector('iframe');
+    if (iframe) {
+      patch();
+      observer.disconnect();
+    }
+  });
+  if (container) observer.observe(container, { childList: true, subtree: true });
+  return observer;
 }
 
 export default function Meeting({ role }) {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { profile } = useAuthStore();
+  const containerRef = useRef(null);
+  const apiRef = useRef(null);
+  const observerRef = useRef(null);
+  const [joined, setJoined] = useState(false);
+  const [error, setError] = useState(null);
 
   const appointmentId = params.get('appointmentId');
   const channel = params.get('channel') || `arogyasetu-${appointmentId || 'consultation'}`;
-
-  // Agora state
-  const clientRef = useRef(null);
-  const localTracksRef = useRef({ audio: null, video: null });
-  const [joined, setJoined] = useState(false);
-  const [audioMuted, setAudioMuted] = useState(false);
-  const [videoMuted, setVideoMuted] = useState(false);
-  const [remoteUsers, setRemoteUsers] = useState([]);
-  const [error, setError] = useState(null);
-  const localVideoRef = useRef(null);
+  const roomName = roomNameFromChannel(channel);
+  const displayName = role === 'doctor'
+    ? `Dr ${profile?.email?.split('@')[0] || 'Doctor'}`
+    : profile?.email?.split('@')[0] || 'Patient';
+  const directUrl = `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}`;
 
   const completeConsultation = useMutation({
     mutationFn: () => api.post('/doctor/consultation', {
       appointmentId,
       mode: 'VIDEO',
-      notes: 'Video consultation completed via Agora meeting.',
+      notes: 'Video consultation completed via Jitsi meeting.',
       diagnosis: 'Diagnosis to be finalized in prescription workflow.'
     }),
     onSuccess: (response) => {
@@ -45,108 +79,76 @@ export default function Meeting({ role }) {
   });
 
   useEffect(() => {
-    if (!APP_ID) {
-      setError('Agora App ID is not configured. Set VITE_AGORA_APP_ID in frontend/.env');
-      return;
-    }
+    let jitsiApi = null;
 
-    const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-    clientRef.current = client;
-
-    // Remote user joined — play their video/audio
-    client.on('user-published', async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
-      if (mediaType === 'video') {
-        setRemoteUsers((prev) => {
-          const exists = prev.find((u) => u.uid === user.uid);
-          return exists ? prev.map((u) => u.uid === user.uid ? user : u) : [...prev, user];
-        });
-        // Play into a div after React renders it
-        setTimeout(() => {
-          const el = document.getElementById(`remote-${user.uid}`);
-          if (el) user.videoTrack?.play(el);
-        }, 100);
-      }
-      if (mediaType === 'audio') {
-        user.audioTrack?.play();
-      }
-    });
-
-    client.on('user-unpublished', (user) => {
-      setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
-    });
-
-    client.on('user-left', (user) => {
-      setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
-    });
-
-    const join = async () => {
+    const init = async () => {
       try {
-        // Use null token for testing (works for Agora projects with no token auth)
-        // In production replace with a real token from your token server
-        const token = import.meta.env.VITE_AGORA_TEMP_TOKEN || null;
-        const uid = uidFromRole(role);
+        await loadJitsiScript();
 
-        await client.join(APP_ID, channel, token, uid);
-
-        const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
-        localTracksRef.current = { audio: audioTrack, video: videoTrack };
-
-        // Play local video
-        if (localVideoRef.current) {
-          videoTrack.play(localVideoRef.current);
+        if (!containerRef.current || !window.JitsiMeetExternalAPI) {
+          setError('Jitsi script failed to load.');
+          return;
         }
 
-        await client.publish([audioTrack, videoTrack]);
-        setJoined(true);
+        // Start observing before creating the API so we catch the iframe immediately
+        observerRef.current = patchJitsiIframePermissions(containerRef.current);
+
+        jitsiApi = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
+          roomName,
+          parentNode: containerRef.current,
+          width: '100%',
+          height: '100%',
+          userInfo: { displayName },
+          configOverwrite: {
+            prejoinPageEnabled: false,
+            prejoinConfig: { enabled: false },
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            disableDeepLinking: true,
+            enableWelcomePage: false,
+            disableInviteFunctions: true,
+            // Explicitly allow camera/mic inside the Jitsi config
+            constraints: {
+              video: { height: { ideal: 720, max: 1080, min: 240 } }
+            }
+          },
+          interfaceConfigOverwrite: {
+            SHOW_JITSI_WATERMARK: false,
+            SHOW_WATERMARK_FOR_GUESTS: false,
+            TOOLBAR_ALWAYS_VISIBLE: true
+          }
+        });
+
+        apiRef.current = jitsiApi;
+
+        jitsiApi.addEventListener('videoConferenceJoined', () => setJoined(true));
+        jitsiApi.addEventListener('readyToClose', () => {
+          navigate(role === 'doctor' ? '/doctor/consultation' : '/patient/consultation');
+        });
+        jitsiApi.addEventListener('errorOccurred', (e) => {
+          console.error('Jitsi error:', e);
+        });
       } catch (err) {
-        console.error('Agora join error:', err);
-        if (err.code === 'PERMISSION_DENIED' || String(err).includes('Permission')) {
-          setError('Camera or microphone permission was denied. Please allow access in your browser and reload.');
-        } else if (err.code === 'INVALID_PARAMS' || String(err).includes('token')) {
-          setError('Agora token is invalid or expired. For local testing, disable token authentication in your Agora project console (set to "No certificate").');
-        } else {
-          setError(`Could not join meeting: ${err.message || err}`);
-        }
+        console.error('Jitsi init error:', err);
+        setError('Could not load the meeting room. Use "Open in new tab" to join directly.');
       }
     };
 
-    join();
+    init();
 
     return () => {
-      const { audio, video } = localTracksRef.current;
-      audio?.close();
-      video?.close();
-      client.leave().catch(() => {});
+      observerRef.current?.disconnect();
+      if (apiRef.current) {
+        try { apiRef.current.dispose(); } catch (_) {}
+        apiRef.current = null;
+      }
     };
-  }, [channel, role]);
+  }, [roomName, displayName, role, navigate]);
 
-  // Play local video once ref is ready
-  useEffect(() => {
-    if (joined && localVideoRef.current && localTracksRef.current.video) {
-      localTracksRef.current.video.play(localVideoRef.current);
+  const leave = () => {
+    if (apiRef.current) {
+      try { apiRef.current.executeCommand('hangup'); } catch (_) {}
     }
-  }, [joined]);
-
-  const toggleAudio = async () => {
-    const track = localTracksRef.current.audio;
-    if (!track) return;
-    await track.setMuted(!audioMuted);
-    setAudioMuted(!audioMuted);
-  };
-
-  const toggleVideo = async () => {
-    const track = localTracksRef.current.video;
-    if (!track) return;
-    await track.setMuted(!videoMuted);
-    setVideoMuted(!videoMuted);
-  };
-
-  const leave = async () => {
-    const { audio, video } = localTracksRef.current;
-    audio?.close();
-    video?.close();
-    await clientRef.current?.leave().catch(() => {});
     navigate(role === 'doctor' ? '/doctor/consultation' : '/patient/consultation');
   };
 
@@ -156,7 +158,7 @@ export default function Meeting({ role }) {
         title="Video Consultation"
         eyebrow={role === 'doctor' ? 'Doctor meeting room' : 'Patient meeting room'}
       >
-        Agora RTC room for this appointment. Doctor and patient join the same channel.
+        Jitsi room for this appointment. Doctor and patient join the same room automatically.
       </PageHeader>
 
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -165,29 +167,16 @@ export default function Meeting({ role }) {
           <div className="flex items-center gap-3">
             <span className="rounded-md bg-clinic-50 p-2 text-clinic-700"><Video size={20} /></span>
             <div>
-              <h2 className="font-bold text-slate-950">ArogyaSetu+ Video Consultation</h2>
-              <p className="text-sm text-slate-500">Channel: {channel} · {joined ? '🟢 Connected' : '⏳ Connecting...'}</p>
+              <h2 className="font-bold text-slate-950">ArogyaSetu+ Jitsi Meeting</h2>
+              <p className="text-sm text-slate-500">
+                Room: {roomName} · {joined ? '🟢 Connected' : '⏳ Connecting...'}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              className={`btn-secondary ${audioMuted ? 'border-rose-400 text-rose-700' : ''}`}
-              type="button"
-              disabled={!joined}
-              onClick={toggleAudio}
-            >
-              {audioMuted ? <MicOff size={18} /> : <Mic size={18} />}
-              {audioMuted ? 'Unmute' : 'Mute'}
-            </button>
-            <button
-              className={`btn-secondary ${videoMuted ? 'border-rose-400 text-rose-700' : ''}`}
-              type="button"
-              disabled={!joined}
-              onClick={toggleVideo}
-            >
-              {videoMuted ? <VideoOff size={18} /> : <Video size={18} />}
-              {videoMuted ? 'Start video' : 'Stop video'}
-            </button>
+            <a className="btn-secondary" href={directUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={18} /> Open in new tab
+            </a>
             {role === 'doctor' && (
               <button
                 className="btn-primary"
@@ -205,7 +194,6 @@ export default function Meeting({ role }) {
           </div>
         </div>
 
-        {/* Warnings */}
         {role === 'doctor' && !appointmentId && (
           <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
             Appointment ID missing — prescription generation will not be available from this meeting.
@@ -217,58 +205,25 @@ export default function Meeting({ role }) {
           </div>
         )}
 
-        {/* Error state */}
-        {error && (
-          <div className="border-b border-rose-200 bg-rose-50 px-4 py-3">
-            <p className="text-sm font-semibold text-rose-800">{error}</p>
-            {error.includes('token') && (
-              <p className="mt-1 text-xs text-rose-700">
-                Go to <a className="underline" href="https://console.agora.io" target="_blank" rel="noreferrer">console.agora.io</a> → your project → Edit → set Authentication Mechanism to <strong>"No certificate"</strong> for local testing.
-              </p>
-            )}
+        {/* Camera permission hint — shown until joined */}
+        {!joined && !error && (
+          <div className="border-b border-clinic-100 bg-clinic-50 px-4 py-3 text-sm text-clinic-800">
+            <strong>Allow camera and microphone</strong> when your browser prompts. If you already denied it,
+            click the 🔒 icon in your browser address bar and reset permissions for this site.
           </div>
         )}
 
-        {/* Video grid */}
-        <div className="grid min-h-[560px] gap-2 bg-slate-950 p-3"
-          style={{ gridTemplateColumns: remoteUsers.length ? '1fr 1fr' : '1fr' }}>
-          {/* Local video */}
-          <div className="relative overflow-hidden rounded-lg bg-slate-800">
-            <div ref={localVideoRef} className="h-full w-full" />
-            {!joined && !error && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <p className="text-sm font-semibold text-slate-400">Connecting camera...</p>
-              </div>
-            )}
-            <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">
-              You ({role})
-            </span>
-            {videoMuted && (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-800">
-                <VideoOff className="text-slate-500" size={40} />
-              </div>
-            )}
+        {error ? (
+          <div className="flex h-[72vh] min-h-[560px] flex-col items-center justify-center gap-4 bg-slate-950 p-8 text-center">
+            <Video className="text-slate-500" size={48} />
+            <p className="text-slate-300">{error}</p>
+            <a className="btn-primary" href={directUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={18} /> Open Jitsi in new tab
+            </a>
           </div>
-
-          {/* Remote users */}
-          {remoteUsers.map((user) => (
-            <div key={user.uid} className="relative overflow-hidden rounded-lg bg-slate-800">
-              <div id={`remote-${user.uid}`} className="h-full w-full" />
-              <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">
-                {role === 'doctor' ? 'Patient' : 'Doctor'}
-              </span>
-            </div>
-          ))}
-
-          {/* Waiting for other party */}
-          {joined && remoteUsers.length === 0 && (
-            <div className="flex items-center justify-center rounded-lg bg-slate-800">
-              <p className="text-sm font-semibold text-slate-400">
-                Waiting for {role === 'doctor' ? 'patient' : 'doctor'} to join...
-              </p>
-            </div>
-          )}
-        </div>
+        ) : (
+          <div ref={containerRef} className="h-[72vh] min-h-[560px] bg-slate-950" />
+        )}
       </section>
     </div>
   );
